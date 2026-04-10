@@ -1,26 +1,55 @@
 from rest_framework import serializers
-from .models import UserProfile, ParsedCV, SkillSnapshot, GapReport, SkillGap, LearningPath, LearningStep, Capstone, CapstoneReview
+from django.contrib.auth.models import User
+from .models import (
+    UserProfile, ParsedCV, SkillSnapshot, GapReport, SkillGap,
+    LearningPath, LearningStep, Capstone, CapstoneReview,
+    SkillCategory, Skill, UserSkill, SkillBadge, ResumeParseResult,
+    SkillTest, TestAttempt, LearningResource, Portfolio, PortfolioSkillEntry,
+)
 
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
 
 class UserProfileSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source="user.username", read_only=True)
-    email = serializers.EmailField(source="user.email", read_only=True)
+    email    = serializers.EmailField(source="user.email", read_only=True)
 
     class Meta:
-        model = UserProfile
-        fields = ["id", "username", "email", "preferred_path", "target_role", "created_at"]
+        model  = UserProfile
+        fields = ["id", "username", "email", "preferred_path", "target_role",
+                  "bio", "avatar_url", "resume_url", "created_at"]
         read_only_fields = ["id", "created_at"]
 
 
+class UserSerializer(serializers.ModelSerializer):
+    profile = UserProfileSerializer(read_only=True)
+
+    class Meta:
+        model  = User
+        fields = ["id", "username", "email", "first_name", "last_name", "profile"]
+
+
+class RegisterSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, min_length=8)
+
+    class Meta:
+        model  = User
+        fields = ["username", "email", "password", "first_name", "last_name"]
+
+    def create(self, validated_data):
+        return User.objects.create_user(**validated_data)
+
+
+# ── Sarthak's AI Serializers ──────────────────────────────────────────────────
+
 class ParsedCVSerializer(serializers.ModelSerializer):
     class Meta:
-        model = ParsedCV
+        model  = ParsedCV
         fields = ["id", "user_profile", "raw_text", "extracted_skills", "pii_flagged", "uploaded_at"]
         read_only_fields = ["id", "extracted_skills", "pii_flagged", "uploaded_at"]
 
 
 class CVUploadSerializer(serializers.Serializer):
-    """Used for the upload endpoint — accepts either a file or raw text."""
     file = serializers.FileField(required=False)
     text = serializers.CharField(required=False, allow_blank=False)
 
@@ -31,127 +60,104 @@ class CVUploadSerializer(serializers.Serializer):
 
 
 class CVResultSerializer(serializers.ModelSerializer):
-    """Read-only serializer for returning parsed CV results."""
     class Meta:
-        model = ParsedCV
+        model  = ParsedCV
         fields = ["id", "extracted_skills", "pii_flagged", "uploaded_at"]
 
 
 class SkillSnapshotSerializer(serializers.ModelSerializer):
     class Meta:
-        model = SkillSnapshot
+        model  = SkillSnapshot
         fields = ["id", "skill_name", "years_experience", "freshness_score", "decay_reason", "analyzed_at"]
-        read_only_fields = fields
+        read_only_fields = ["id", "skill_name", "years_experience", "freshness_score", "decay_reason", "analyzed_at"]
 
 
 class SkillDecayReportSerializer(serializers.Serializer):
-    """Aggregated decay report for a user — not a model serializer."""
     overall_health_score = serializers.IntegerField()
-    total_skills = serializers.IntegerField()
-    fresh_skills = serializers.IntegerField()       # score >= 85
-    relevant_skills = serializers.IntegerField()    # score 70–84
-    stale_skills = serializers.IntegerField()       # score < 70
-    skills = SkillSnapshotSerializer(many=True)
+    total_skills         = serializers.IntegerField()
+    fresh_skills         = serializers.IntegerField()
+    relevant_skills      = serializers.IntegerField()
+    stale_skills         = serializers.IntegerField()
+    skills               = SkillSnapshotSerializer(many=True)
 
 
 class SkillGapSerializer(serializers.ModelSerializer):
     class Meta:
-        model = SkillGap
+        model  = SkillGap
         fields = ["id", "skill_name", "priority", "reason", "user_has_it"]
-        read_only_fields = fields
+        read_only_fields = ["id", "skill_name", "priority", "reason", "user_has_it"]
 
 
 class GapReportSerializer(serializers.ModelSerializer):
-    gaps = SkillGapSerializer(many=True, read_only=True)
-    total_gaps = serializers.SerializerMethodField()
-    missing_skills = serializers.SerializerMethodField()
-    high_priority_gaps = serializers.SerializerMethodField()
+    gaps                 = SkillGapSerializer(many=True, read_only=True)
+    total_gaps           = serializers.SerializerMethodField()
+    missing_skills       = serializers.SerializerMethodField()
+    high_priority_gaps   = serializers.SerializerMethodField()
     medium_priority_gaps = serializers.SerializerMethodField()
-    low_priority_gaps = serializers.SerializerMethodField()
+    low_priority_gaps    = serializers.SerializerMethodField()
 
     class Meta:
-        model = GapReport
-        fields = [
-            "id", "target_role", "created_at",
-            "total_gaps", "missing_skills",
-            "high_priority_gaps", "medium_priority_gaps", "low_priority_gaps",
-            "gaps",
-        ]
-        read_only_fields = fields
+        model  = GapReport
+        fields = ["id", "target_role", "created_at", "total_gaps", "missing_skills",
+                  "high_priority_gaps", "medium_priority_gaps", "low_priority_gaps", "gaps"]
+        read_only_fields = ["id", "target_role", "created_at"]
 
-    def get_total_gaps(self, obj):
-        return obj.gaps.count()
-
-    def get_missing_skills(self, obj):
-        return obj.gaps.filter(user_has_it=False).count()
-
-    def get_high_priority_gaps(self, obj):
-        return obj.gaps.filter(priority="high", user_has_it=False).count()
-
-    def get_medium_priority_gaps(self, obj):
-        return obj.gaps.filter(priority="medium", user_has_it=False).count()
-
-    def get_low_priority_gaps(self, obj):
-        return obj.gaps.filter(priority="low", user_has_it=False).count()
+    def get_total_gaps(self, obj):           return obj.gaps.count()
+    def get_missing_skills(self, obj):       return obj.gaps.filter(user_has_it=False).count()
+    def get_high_priority_gaps(self, obj):   return obj.gaps.filter(priority="high", user_has_it=False).count()
+    def get_medium_priority_gaps(self, obj): return obj.gaps.filter(priority="medium", user_has_it=False).count()
+    def get_low_priority_gaps(self, obj):    return obj.gaps.filter(priority="low", user_has_it=False).count()
 
 
 class GapAnalyzeInputSerializer(serializers.Serializer):
-    jd_text = serializers.CharField(min_length=50)
+    jd_text     = serializers.CharField(min_length=50)
     target_role = serializers.CharField(required=False, allow_blank=True, default="")
 
 
 class LearningStepSerializer(serializers.ModelSerializer):
     class Meta:
-        model = LearningStep
-        fields = [
-            "id", "skill_name", "step_order", "title",
-            "description", "resource_url", "resource_type", "estimated_hours",
-        ]
-        read_only_fields = fields
+        model  = LearningStep
+        fields = ["id", "skill_name", "step_order", "title", "description",
+                  "resource_url", "resource_type", "estimated_hours"]
+        read_only_fields = ["id", "skill_name", "step_order", "title", "description",
+                            "resource_url", "resource_type", "estimated_hours"]
 
 
 class LearningPathSerializer(serializers.ModelSerializer):
-    steps = LearningStepSerializer(many=True, read_only=True)
+    steps       = LearningStepSerializer(many=True, read_only=True)
     total_steps = serializers.SerializerMethodField()
     total_hours = serializers.SerializerMethodField()
 
     class Meta:
-        model = LearningPath
-        fields = [
-            "id", "path_type", "target_role", "created_at",
-            "total_steps", "total_hours", "steps",
-        ]
-        read_only_fields = fields
+        model  = LearningPath
+        fields = ["id", "path_type", "target_role", "created_at", "total_steps", "total_hours", "steps"]
+        read_only_fields = ["id", "path_type", "target_role", "created_at"]
 
-    def get_total_steps(self, obj):
-        return obj.steps.count()
-
-    def get_total_hours(self, obj):
-        return round(sum(s.estimated_hours for s in obj.steps.all()), 1)
+    def get_total_steps(self, obj): return obj.steps.count()
+    def get_total_hours(self, obj): return round(sum(s.estimated_hours for s in obj.steps.all()), 1)
 
 
 class CurriculumGenerateInputSerializer(serializers.Serializer):
     gap_report_id = serializers.IntegerField()
-    path_type = serializers.ChoiceField(choices=["hacker", "certified"])
+    path_type     = serializers.ChoiceField(choices=["hacker", "certified"])
 
 
 class CapstoneReviewSerializer(serializers.ModelSerializer):
     class Meta:
-        model = CapstoneReview
+        model  = CapstoneReview
         fields = ["id", "github_url", "score", "review_summary", "strengths", "improvements", "reviewed_at"]
-        read_only_fields = fields
+        read_only_fields = ["id", "github_url", "score", "review_summary", "strengths", "improvements", "reviewed_at"]
 
 
 class CapstoneSerializer(serializers.ModelSerializer):
     review = CapstoneReviewSerializer(read_only=True)
 
     class Meta:
-        model = Capstone
-        fields = [
-            "id", "title", "description", "tech_stack", "deliverables",
-            "evaluation_rubric", "difficulty", "target_role", "created_at", "review",
-        ]
-        read_only_fields = fields
+        model  = Capstone
+        fields = ["id", "title", "description", "tech_stack", "deliverables",
+                  "evaluation_rubric", "difficulty", "target_role", "created_at", "review"]
+        read_only_fields = ["id", "title", "description", "tech_stack", "deliverables",
+                            "evaluation_rubric", "difficulty", "target_role", "created_at"]
 
 
 class CapstoneGenerateInputSerializer(serializers.Serializer):
@@ -160,3 +166,119 @@ class CapstoneGenerateInputSerializer(serializers.Serializer):
 
 class CapstoneReviewInputSerializer(serializers.Serializer):
     github_url = serializers.URLField()
+
+
+# ── Rutuja's Infrastructure Serializers ──────────────────────────────────────
+
+class SkillCategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = SkillCategory
+        fields = ["id", "name", "description"]
+
+
+class SkillSerializer(serializers.ModelSerializer):
+    category_name = serializers.CharField(source="category.name", read_only=True)
+
+    class Meta:
+        model  = Skill
+        fields = ["id", "name", "category", "category_name", "description", "difficulty", "created_at"]
+        read_only_fields = ["created_at"]
+
+
+class UserSkillSerializer(serializers.ModelSerializer):
+    skill_name       = serializers.CharField(source="skill.name", read_only=True)
+    skill_difficulty = serializers.CharField(source="skill.difficulty", read_only=True)
+    skill_category   = serializers.CharField(source="skill.category.name", read_only=True)
+
+    class Meta:
+        model  = UserSkill
+        fields = ["id", "skill", "skill_name", "skill_difficulty", "skill_category",
+                  "status", "score", "started_at", "completed_at"]
+        read_only_fields = ["started_at", "completed_at"]
+
+
+class SkillBadgeSerializer(serializers.ModelSerializer):
+    skill_name = serializers.CharField(source="skill.name", read_only=True)
+
+    class Meta:
+        model  = SkillBadge
+        fields = ["id", "skill", "skill_name", "score", "verification_hash", "awarded_at"]
+        read_only_fields = ["verification_hash", "awarded_at"]
+
+
+class ResumeUploadSerializer(serializers.Serializer):
+    resume = serializers.FileField()
+
+
+class ResumeParseResultSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = ResumeParseResult
+        fields = ["extracted_skills", "parsed_at"]
+        read_only_fields = ["extracted_skills", "parsed_at"]
+
+
+class SkillTestSerializer(serializers.ModelSerializer):
+    skill_name           = serializers.CharField(source="skill.name", read_only=True)
+    questions_for_client = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = SkillTest
+        fields = ["id", "skill", "skill_name", "questions_for_client", "generated_at"]
+
+    def get_questions_for_client(self, obj):
+        return [
+            {"index": i, "question": q.get("question"), "options": q.get("options")}
+            for i, q in enumerate(obj.questions)
+        ]
+
+
+class TestSubmitSerializer(serializers.Serializer):
+    answers = serializers.DictField(child=serializers.IntegerField(min_value=0, max_value=3))
+
+
+class TestAttemptSerializer(serializers.ModelSerializer):
+    skill_name = serializers.CharField(source="skill_test.skill.name", read_only=True)
+    test_id    = serializers.IntegerField(source="skill_test.id", read_only=True)
+
+    class Meta:
+        model  = TestAttempt
+        fields = ["id", "test_id", "skill_name", "score", "passed", "attempted_at"]
+
+
+class LearningResourceSerializer(serializers.ModelSerializer):
+    skill_name = serializers.CharField(source="skill.name", read_only=True)
+
+    class Meta:
+        model  = LearningResource
+        fields = ["id", "skill", "skill_name", "source", "title", "url",
+                  "thumbnail", "channel", "duration", "fetched_at"]
+        read_only_fields = ["fetched_at"]
+
+
+class PortfolioSkillEntrySerializer(serializers.ModelSerializer):
+    skill_name       = serializers.CharField(source="skill.name", read_only=True)
+    skill_difficulty = serializers.CharField(source="skill.difficulty", read_only=True)
+    badge_hash       = serializers.SerializerMethodField()
+    resources        = LearningResourceSerializer(many=True, read_only=True)
+
+    class Meta:
+        model  = PortfolioSkillEntry
+        fields = ["skill", "skill_name", "skill_difficulty", "score", "badge_hash", "resources"]
+
+    def get_badge_hash(self, obj):
+        return str(obj.badge.verification_hash) if obj.badge else None
+
+
+class PortfolioSerializer(serializers.ModelSerializer):
+    username      = serializers.CharField(source="user.username", read_only=True)
+    full_name     = serializers.SerializerMethodField()
+    skill_entries = PortfolioSkillEntrySerializer(many=True, read_only=True)
+
+    class Meta:
+        model  = Portfolio
+        fields = ["slug", "username", "full_name", "bio_snapshot", "is_public",
+                  "skill_entries", "created_at", "updated_at"]
+        read_only_fields = ["slug", "created_at", "updated_at"]
+
+    def get_full_name(self, obj):
+        return obj.user.get_full_name() or obj.user.username

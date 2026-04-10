@@ -1,10 +1,20 @@
+# Core Django
 django>=5.2
 djangorestframework>=3.17
-djangorestframework-simplejwt>=5.3
-django-cors-headers>=4.0
+djangorestframework-simplejwt>=5.5
+django-cors-headers>=4.9
 psycopg2-binary>=2.9
-langchain>=1.2
 python-dotenv>=1.0
+
+# Sarthak — AI / LLM
+langchain>=1.2
 groq>=1.1
-chromadb>=1.5
 PyPDF2>=3.0
+
+# Rutuja — Infrastructure
+boto3>=1.42
+django-storages>=1.14
+google-api-python-client>=2.194
+django-redis>=6.0
+redis>=7.4
+weasyprint>=68.0
