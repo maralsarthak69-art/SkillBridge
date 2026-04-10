@@ -1,57 +1,25 @@
-from .chroma_client import query_market_relevance, seed_market_trends
+"""
+skill_decay.py — Skill Decay Service
 
+Bridges the NeonDB-powered logic layer (core_engine/logic/market_analysis.py)
+with the Django ORM (SkillSnapshot model).
 
-# ── Freshness Score Calculator ────────────────────────────────────────────────
+Full pipeline:
+    ParsedCV → extract technical_skills
+             → calculate_staleness_index() via NeonDB
+             → save SkillSnapshot with staleness_index + freshness_score + breakdown
+             → return snapshots for API response
+"""
 
-def calculate_freshness_score(skill_name: str, years_experience) -> tuple:
-    """
-    Combine market relevance + experience depth into a freshness score (0–100).
-    Returns: (score: int, reason: str)
-    """
-    market = query_market_relevance(skill_name)
-    relevance = market["relevance_score"]
+from core_engine.logic.market_analysis import calculate_staleness_index
 
-    exp_bonus = 0
-    if years_experience:
-        if years_experience >= 5:
-            exp_bonus = 10
-        elif years_experience >= 3:
-            exp_bonus = 7
-        elif years_experience >= 1:
-            exp_bonus = 4
-        else:
-            exp_bonus = 1
-
-    final_score = min(100, relevance + exp_bonus)
-
-    if final_score >= 85:
-        status = "Very fresh"
-    elif final_score >= 70:
-        status = "Relevant"
-    elif final_score >= 50:
-        status = "Moderately relevant"
-    else:
-        status = "Stale or declining"
-
-    reason = (
-        f"{status}. Market relevance: {relevance}/100. "
-        f"Experience: {years_experience or 'unknown'} years (+{exp_bonus} pts). "
-        f"{market['description']}"
-    )
-
-    return final_score, reason
-
-
-# ── Main Analyzer ─────────────────────────────────────────────────────────────
 
 def analyze_skill_decay(parsed_cv) -> list:
     """
-    Analyze all technical skills from a ParsedCV instance.
-    Creates SkillSnapshot records and returns a list of results.
+    Analyze all technical skills from a ParsedCV instance using NeonDB staleness engine.
+    Creates SkillSnapshot records and returns them.
     """
     from core_engine.models import SkillSnapshot
-
-    seed_market_trends()
 
     technical_skills = parsed_cv.extracted_skills.get("technical_skills", [])
     if not technical_skills:
@@ -60,29 +28,74 @@ def analyze_skill_decay(parsed_cv) -> list:
     snapshots = []
     for skill_entry in technical_skills:
         skill_name = skill_entry.get("skill", "")
-        years = skill_entry.get("years")
-
+        years      = skill_entry.get("years")
         if not skill_name:
             continue
 
-        score, reason = calculate_freshness_score(skill_name, years)
+        # Use NeonDB-powered staleness engine
+        result = calculate_staleness_index(skill_name, years)
+
+        staleness = result["staleness_index"]
+        freshness = result["freshness_score"]
+        demand    = result["demand_score"]
+        growth    = result["growth_rate"]
+        breakdown = result["breakdown"]
+
+        # Build human-readable decay reason
+        if staleness >= 70:
+            status = "Stale"
+        elif staleness >= 40:
+            status = "Moderately relevant"
+        elif staleness >= 20:
+            status = "Relevant"
+        else:
+            status = "Very fresh"
+
+        reason = (
+            f"{status}. Staleness: {staleness}/100. "
+            f"Market demand: {demand}/100. "
+            f"Growth rate: {'+' if growth >= 0 else ''}{growth}. "
+            f"Semantic drift: {breakdown['semantic_drift']}, "
+            f"Recency penalty: {breakdown['recency_penalty']}, "
+            f"Demand penalty: {breakdown['demand_penalty']}."
+        )
 
         snapshot = SkillSnapshot.objects.create(
-            user_profile=parsed_cv.user_profile,
-            skill_name=skill_name,
-            years_experience=years,
-            freshness_score=score,
-            decay_reason=reason,
+            user_profile     = parsed_cv.user_profile,
+            skill_name       = skill_name,
+            years_experience = years,
+            freshness_score  = freshness,
+            staleness_index  = staleness,
+            demand_score     = demand,
+            growth_rate      = growth,
+            decay_reason     = reason,
         )
         snapshots.append(snapshot)
 
     return snapshots
 
 
-# ── Overall Health Score ──────────────────────────────────────────────────────
-
-def calculate_overall_health(snapshots: list) -> int:
-    """Average freshness score across all skills. Returns 0 if no snapshots."""
+def calculate_overall_health(snapshots: list) -> dict:
+    """
+    Compute aggregate health metrics across all skill snapshots.
+    Returns a dict with overall scores and breakdowns.
+    """
     if not snapshots:
-        return 0
-    return round(sum(s.freshness_score for s in snapshots) / len(snapshots))
+        return {
+            "overall_freshness":  100,
+            "overall_staleness":  0,
+            "fresh_count":        0,
+            "relevant_count":     0,
+            "stale_count":        0,
+        }
+
+    avg_staleness = round(sum(s.staleness_index for s in snapshots) / len(snapshots))
+    avg_freshness = 100 - avg_staleness
+
+    return {
+        "overall_freshness": avg_freshness,
+        "overall_staleness": avg_staleness,
+        "fresh_count":       sum(1 for s in snapshots if s.staleness_index < 30),
+        "relevant_count":    sum(1 for s in snapshots if 30 <= s.staleness_index < 60),
+        "stale_count":       sum(1 for s in snapshots if s.staleness_index >= 60),
+    }

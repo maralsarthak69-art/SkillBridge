@@ -26,6 +26,13 @@ urlpatterns = [
     path("capstone/<int:capstone_id>/",         views.get_capstone_view,         name="capstone-detail"),
     path("capstone/",                           views.list_capstones_view,       name="capstone-list"),
 
+    # Alignment Engine (Phase 2)
+    path("alignment/analyze/",                  views.analyze_alignment_view,    name="alignment-analyze"),
+
+    # Dual-Path Curriculum Generator (Phase 3)
+    path("curriculum/roadmap/",                 views.generate_roadmap_view,             name="roadmap-generate"),
+    path("curriculum/review/",                  views.review_capstone_submission_view,   name="capstone-ai-review"),
+
     # Rutuja — Skill Infrastructure
     path("categories/",                             views.SkillCategoryListCreateView.as_view(), name="categories"),
     path("skills/",                                 views.SkillListCreateView.as_view(),         name="skills-list"),

@@ -68,17 +68,20 @@ class CVResultSerializer(serializers.ModelSerializer):
 class SkillSnapshotSerializer(serializers.ModelSerializer):
     class Meta:
         model  = SkillSnapshot
-        fields = ["id", "skill_name", "years_experience", "freshness_score", "decay_reason", "analyzed_at"]
-        read_only_fields = ["id", "skill_name", "years_experience", "freshness_score", "decay_reason", "analyzed_at"]
+        fields = ["id", "skill_name", "years_experience", "freshness_score",
+                  "staleness_index", "demand_score", "growth_rate", "decay_reason", "analyzed_at"]
+        read_only_fields = ["id", "skill_name", "years_experience", "freshness_score",
+                            "staleness_index", "demand_score", "growth_rate", "decay_reason", "analyzed_at"]
 
 
 class SkillDecayReportSerializer(serializers.Serializer):
-    overall_health_score = serializers.IntegerField()
-    total_skills         = serializers.IntegerField()
-    fresh_skills         = serializers.IntegerField()
-    relevant_skills      = serializers.IntegerField()
-    stale_skills         = serializers.IntegerField()
-    skills               = SkillSnapshotSerializer(many=True)
+    overall_freshness = serializers.IntegerField()
+    overall_staleness = serializers.IntegerField()
+    fresh_count       = serializers.IntegerField()
+    relevant_count    = serializers.IntegerField()
+    stale_count       = serializers.IntegerField()
+    total_skills      = serializers.IntegerField()
+    skills            = SkillSnapshotSerializer(many=True)
 
 
 class SkillGapSerializer(serializers.ModelSerializer):
@@ -282,3 +285,41 @@ class PortfolioSerializer(serializers.ModelSerializer):
 
     def get_full_name(self, obj):
         return obj.user.get_full_name() or obj.user.username
+
+
+# ── Alignment Engine Serializers ──────────────────────────────────────────────
+
+class AlignmentGapItemSerializer(serializers.Serializer):
+    gap_type       = serializers.CharField()
+    skill          = serializers.CharField()
+    universal_name = serializers.CharField()
+    priority       = serializers.CharField()
+    gap_severity   = serializers.CharField()
+    demand_score   = serializers.IntegerField()
+    growth_rate    = serializers.FloatField()
+    bridge_hint    = serializers.CharField()
+
+
+class AlignmentReportSerializer(serializers.Serializer):
+    role_title              = serializers.CharField()
+    industry_context        = serializers.CharField()
+    gap_score               = serializers.IntegerField()
+    overall_overlap_pct     = serializers.IntegerField()
+    critical_gaps           = serializers.IntegerField()
+    total_jd_requirements   = serializers.IntegerField()
+    transferable_strengths  = serializers.ListField(child=serializers.CharField())
+    gaps                    = AlignmentGapItemSerializer(many=True)
+
+
+class AlignmentInputSerializer(serializers.Serializer):
+    jd_text = serializers.CharField(min_length=50)
+
+
+# ── Curriculum Generator Serializers (imported from module) ──────────────────
+from .serializers_curriculum import (  # noqa: E402
+    ResourceSlotSerializer, PathSerializer, RubricItemSerializer,
+    MiniCapstoneSerializer, LearningUnitSerializer, RoadmapSummarySerializer,
+    DevelopmentNoteSerializer, DualPathRoadmapSerializer,
+    RoadmapInputSerializer, CriterionScoreSerializer,
+    ReviewResultSerializer, ReviewInputSerializer,
+)

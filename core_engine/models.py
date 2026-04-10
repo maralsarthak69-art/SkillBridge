@@ -52,7 +52,10 @@ class SkillSnapshot(models.Model):
     user_profile     = models.ForeignKey(UserProfile, on_delete=models.CASCADE, related_name="skill_snapshots")
     skill_name       = models.CharField(max_length=255)
     years_experience = models.FloatField(null=True, blank=True)
-    freshness_score  = models.IntegerField()
+    freshness_score  = models.IntegerField()          # 0–100 (inverse of staleness)
+    staleness_index  = models.IntegerField(default=0) # 0–100 (from NeonDB logic layer)
+    demand_score     = models.IntegerField(default=50)
+    growth_rate      = models.FloatField(default=0.0)
     decay_reason     = models.TextField(blank=True)
     analyzed_at      = models.DateTimeField(auto_now_add=True)
 
@@ -60,7 +63,7 @@ class SkillSnapshot(models.Model):
         ordering = ["-analyzed_at", "-freshness_score"]
 
     def __str__(self):
-        return f"{self.skill_name} — {self.freshness_score}/100 ({self.user_profile.user.username})"
+        return f"{self.skill_name} — staleness:{self.staleness_index}/100 ({self.user_profile.user.username})"
 
 
 class GapReport(models.Model):

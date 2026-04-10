@@ -119,6 +119,9 @@ CORS_ALLOW_CREDENTIALS = True
 # ── Sarthak's AI API Keys ─────────────────────────────────────────────────────
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
+# ── NeonDB (market trends / skill vector store) ───────────────────────────────
+NEON_DATABASE_URL = os.getenv("NEON_DATABASE_URL", "")
+
 # ── AWS S3 Storage (Rutuja's infrastructure) ──────────────────────────────────
 AWS_ACCESS_KEY_ID       = os.getenv("AWS_ACCESS_KEY_ID", "")
 AWS_SECRET_ACCESS_KEY   = os.getenv("AWS_SECRET_ACCESS_KEY", "")

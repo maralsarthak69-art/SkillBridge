@@ -15,12 +15,17 @@ from .serializers import (
     CurriculumGenerateInputSerializer, LearningPathSerializer,
     CapstoneGenerateInputSerializer, CapstoneReviewInputSerializer, CapstoneSerializer,
     SkillCategorySerializer, SkillSerializer, UserSkillSerializer, SkillBadgeSerializer,
+    AlignmentInputSerializer, AlignmentReportSerializer,
+    DualPathRoadmapSerializer, RoadmapInputSerializer,
+    ReviewResultSerializer, ReviewInputSerializer,
 )
 from .services.cv_parser import parse_cv, parse_cv_from_pdf
 from .services.skill_decay import analyze_skill_decay, calculate_overall_health
 from .services.gap_mapper import analyze_gap
 from .services.curriculum import build_learning_path
 from .services.capstone import create_capstone, review_capstone_submission
+from .logic.alignment_engine import analyze_jd_alignment
+from .logic.curriculum_generator import generate_dual_path_roadmap, automated_ai_reviewer
 
 
 # ── Health Check ──────────────────────────────────────────────────────────────
@@ -120,15 +125,8 @@ def analyze_decay_view(request):
     except Exception as e:
         return Response({"error": f"Decay analysis failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    overall = calculate_overall_health(snapshots)
-    report  = {
-        "overall_health_score": overall,
-        "total_skills":   len(snapshots),
-        "fresh_skills":   sum(1 for s in snapshots if s.freshness_score >= 85),
-        "relevant_skills": sum(1 for s in snapshots if 70 <= s.freshness_score < 85),
-        "stale_skills":   sum(1 for s in snapshots if s.freshness_score < 70),
-        "skills": snapshots,
-    }
+    health = calculate_overall_health(snapshots)
+    report = {**health, "total_skills": len(snapshots), "skills": snapshots}
     return Response(SkillDecayReportSerializer(report).data, status=status.HTTP_200_OK)
 
 
@@ -142,16 +140,8 @@ def get_decay_report_view(request):
 
     latest_date      = snapshots.first().analyzed_at.date()
     latest_snapshots = [s for s in snapshots if s.analyzed_at.date() == latest_date]
-    overall          = calculate_overall_health(latest_snapshots)
-
-    report = {
-        "overall_health_score": overall,
-        "total_skills":   len(latest_snapshots),
-        "fresh_skills":   sum(1 for s in latest_snapshots if s.freshness_score >= 85),
-        "relevant_skills": sum(1 for s in latest_snapshots if 70 <= s.freshness_score < 85),
-        "stale_skills":   sum(1 for s in latest_snapshots if s.freshness_score < 70),
-        "skills": latest_snapshots,
-    }
+    health           = calculate_overall_health(latest_snapshots)
+    report           = {**health, "total_skills": len(latest_snapshots), "skills": latest_snapshots}
     return Response(SkillDecayReportSerializer(report).data)
 
 
@@ -352,3 +342,145 @@ def verify_badge(request, verification_hash):
                          "skill": badge.skill.name, "score": badge.score, "awarded_at": badge.awarded_at})
     except SkillBadge.DoesNotExist:
         return Response({"valid": False}, status=status.HTTP_404_NOT_FOUND)
+
+
+# ── Alignment Engine ──────────────────────────────────────────────────────────
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def analyze_alignment_view(request):
+    """
+    POST /api/core/alignment/analyze/
+    Body: { "jd_text": "..." }
+
+    Compares user's CV SkillMap against a JD using 3-layer industry-agnostic analysis:
+        - Explicit skills (tools, tech)
+        - Functional skills (what they do)
+        - Hidden talents (transferable competencies)
+
+    Returns a precise gap list with bridge hints and transferable strengths.
+    """
+    serializer = AlignmentInputSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    latest_cv  = ParsedCV.objects.filter(user_profile=profile).first()
+
+    if not latest_cv:
+        return Response(
+            {"error": "No parsed CV found. Please upload and parse your CV first."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    try:
+        report = analyze_jd_alignment(
+            jd_text=serializer.validated_data["jd_text"],
+            user_skill_map=latest_cv.extracted_skills,
+        )
+    except ValueError as e:
+        return Response({"error": str(e)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+    except Exception as e:
+        return Response(
+            {"error": f"Alignment analysis failed: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return Response(AlignmentReportSerializer(report).data, status=status.HTTP_200_OK)
+
+
+# ── Dual-Path Curriculum Generator ───────────────────────────────────────────
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def generate_roadmap_view(request):
+    """
+    POST /api/core/curriculum/roadmap/
+    Body: { "jd_text": "...", "generate_capstones": true }
+
+    Full pipeline:
+        1. Parse JD → extract 3-layer skills
+        2. Compare against user CV → identify precise gaps
+        3. Generate dual-path roadmap (hacker + certified) per gap
+        4. Generate unique mini-capstone per critical/moderate gap
+    """
+    serializer = RoadmapInputSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    latest_cv  = ParsedCV.objects.filter(user_profile=profile).first()
+
+    if not latest_cv:
+        return Response(
+            {"error": "No parsed CV found. Please upload and parse your CV first."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    jd_text            = serializer.validated_data["jd_text"]
+    generate_capstones = serializer.validated_data["generate_capstones"]
+
+    # Get user's existing skills for capstone personalization
+    tech_skills = latest_cv.extracted_skills.get("technical_skills", [])
+    existing    = [s.get("skill", "") for s in tech_skills if s.get("skill")]
+
+    try:
+        # Step 1: Full alignment analysis
+        alignment = analyze_jd_alignment(jd_text, latest_cv.extracted_skills)
+        gap_list  = alignment.get("gaps", [])
+
+        if not gap_list:
+            return Response(
+                {"message": "No skill gaps found. Your CV is a strong match for this JD.",
+                 "overlap_pct": alignment.get("overall_overlap_pct", 100)},
+                status=status.HTTP_200_OK,
+            )
+
+        # Step 2: Generate dual-path roadmap
+        roadmap = generate_dual_path_roadmap(
+            gap_list=gap_list,
+            existing_skills=existing,
+            generate_capstones=generate_capstones,
+        )
+        roadmap["role_title"]       = alignment.get("role_title", "")
+        roadmap["industry_context"] = alignment.get("industry_context", "")
+        roadmap["overall_overlap_pct"] = alignment.get("overall_overlap_pct", 0)
+        roadmap["transferable_strengths"] = alignment.get("transferable_strengths", [])
+
+    except ValueError as e:
+        return Response({"error": str(e)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+    except Exception as e:
+        return Response(
+            {"error": f"Roadmap generation failed: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return Response(DualPathRoadmapSerializer(roadmap).data, status=status.HTTP_200_OK)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def review_capstone_submission_view(request):
+    """
+    POST /api/core/curriculum/review/
+    Body: { "capstone_task": {...}, "proof_of_work": "https://github.com/..." }
+
+    Runs automated AI review of a capstone submission.
+    Returns PASS/FAIL verdict with detailed criterion scores.
+    """
+    serializer = ReviewInputSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        result = automated_ai_reviewer(
+            capstone_task=serializer.validated_data["capstone_task"],
+            proof_of_work=serializer.validated_data["proof_of_work"],
+        )
+    except Exception as e:
+        return Response(
+            {"error": f"Review failed: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return Response(ReviewResultSerializer(result).data, status=status.HTTP_200_OK)
