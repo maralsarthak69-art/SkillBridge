@@ -534,32 +534,70 @@ def analyze_soft_skills_view(request):
 def correct_grammar_view(request):
     """
     POST /api/core/soft-skills/grammar/
-    Body: { "text": "resume bullet points or bio text..." }
+    Body: { "text": "...", "request_type": "soft_skills" }
 
-    Uses the existing Groq AI engine (same client as curriculum_generator.py)
-    to correct grammar, improve professional tone, and strengthen action verbs.
+    If request_type is "soft_skills":
+      - Uses the existing Groq AI engine with a grammar coach system prompt
+      - Saves the full transcript and corrections to soft_skill_sessions in NeonDB
+      - Returns AI feedback as JSON
 
-    Returns:
+    Always returns:
         corrected_text:    the improved version of the text
         changes:           list of {original, corrected, reason}
-        improvement_score: 0-100 score of how much it improved
+        improvement_score: 0-100
         readability_level: entry | mid | senior | executive
+        session_id:        NeonDB session id (only when request_type=soft_skills)
     """
     serializer = GrammarCorrectionInputSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    text         = serializer.validated_data["text"]
+    request_type = request.data.get("request_type", "grammar")
+
     try:
-        result = correct_grammar(serializer.validated_data["text"])
+        result = correct_grammar(text)
     except ValueError as e:
-        return Response(
-            {"error": str(e)},
-            status=status.HTTP_502_BAD_GATEWAY,
-        )
+        return Response({"error": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
     except Exception as e:
         return Response(
             {"error": f"Grammar correction failed: {str(e)}"},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
+    # ── Soft Skills path: save transcript to NeonDB ───────────────────────────
+    if request_type == "soft_skills":
+        try:
+            from .logic.neon_client import save_soft_skill_session
+            session_id = save_soft_skill_session(
+                user_id=request.user.id,
+                original_text=text,
+                result=result,
+            )
+            result["session_id"]   = session_id
+            result["request_type"] = "soft_skills"
+        except Exception as e:
+            # Non-fatal — still return the AI result even if NeonDB save fails
+            result["session_id"]    = None
+            result["neon_error"]    = f"Session save failed: {str(e)}"
+            result["request_type"]  = "soft_skills"
+
     return Response(GrammarCorrectionResultSerializer(result).data, status=status.HTTP_200_OK)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def soft_skill_sessions_view(request):
+    """
+    GET /api/core/soft-skills/sessions/
+    Returns all past soft skills grammar coaching sessions for the user from NeonDB.
+    """
+    try:
+        from .logic.neon_client import get_soft_skill_sessions
+        sessions = get_soft_skill_sessions(request.user.id)
+    except Exception as e:
+        return Response(
+            {"error": f"Could not fetch sessions: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+    return Response({"sessions": sessions, "count": len(sessions)}, status=status.HTTP_200_OK)

@@ -360,3 +360,6 @@ class GrammarCorrectionResultSerializer(serializers.Serializer):
     changes           = GrammarChangeSerializer(many=True)
     improvement_score = serializers.IntegerField()
     readability_level = serializers.CharField()
+    session_id        = serializers.IntegerField(required=False, allow_null=True)
+    request_type      = serializers.CharField(required=False, default="grammar")
+    neon_error        = serializers.CharField(required=False, allow_null=True)

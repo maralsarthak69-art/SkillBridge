@@ -44,4 +44,5 @@ urlpatterns = [
     # Soft Skills & Grammar (shared AI engine)
     path("soft-skills/analyze/",                    views.analyze_soft_skills_view,             name="soft-skills-analyze"),
     path("soft-skills/grammar/",                    views.correct_grammar_view,                 name="soft-skills-grammar"),
+    path("soft-skills/sessions/",                   views.soft_skill_sessions_view,             name="soft-skills-sessions"),
 ]

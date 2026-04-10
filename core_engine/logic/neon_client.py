@@ -51,6 +51,22 @@ CREATE INDEX IF NOT EXISTS idx_market_trends_skill_lower ON market_trends(skill_
 CREATE INDEX IF NOT EXISTS idx_skill_map_alias           ON skill_map(alias);
 """
 
+CREATE_SOFT_SKILL_SESSIONS = """
+CREATE TABLE IF NOT EXISTS soft_skill_sessions (
+    id              SERIAL PRIMARY KEY,
+    user_id         INTEGER      NOT NULL,
+    request_type    VARCHAR(50)  NOT NULL DEFAULT 'soft_skills',
+    original_text   TEXT         NOT NULL,
+    corrected_text  TEXT         NOT NULL,
+    corrections     JSONB        NOT NULL DEFAULT '[]',
+    ai_feedback     TEXT         NOT NULL DEFAULT '',
+    improvement_score INTEGER    NOT NULL DEFAULT 0,
+    readability_level VARCHAR(20) NOT NULL DEFAULT 'mid',
+    created_at      TIMESTAMP    NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_soft_skill_sessions_user ON soft_skill_sessions(user_id);
+"""
+
 
 def bootstrap_schema():
     """Create tables if they don't exist. Safe to call multiple times."""
@@ -59,6 +75,7 @@ def bootstrap_schema():
             cur.execute(CREATE_MARKET_TRENDS)
             cur.execute(CREATE_SKILL_MAP)
             cur.execute(CREATE_INDEXES)
+            cur.execute(CREATE_SOFT_SKILL_SESSIONS)
         conn.commit()
 
 
@@ -224,3 +241,55 @@ def initialize_neon():
     """Bootstrap schema + seed data. Call once on startup."""
     bootstrap_schema()
     seed_data()
+
+
+# ── SoftSkillSession Helpers ──────────────────────────────────────────────────
+
+def save_soft_skill_session(user_id: int, original_text: str, result: dict) -> int:
+    """
+    Save a soft skills grammar coaching session to NeonDB.
+    Returns the new session id.
+    """
+    import json as _json
+    with get_neon_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO soft_skill_sessions
+                    (user_id, request_type, original_text, corrected_text,
+                     corrections, ai_feedback, improvement_score, readability_level)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    user_id,
+                    "soft_skills",
+                    original_text,
+                    result.get("corrected_text", ""),
+                    _json.dumps(result.get("changes", [])),
+                    result.get("ai_feedback", ""),
+                    result.get("improvement_score", 0),
+                    result.get("readability_level", "mid"),
+                ),
+            )
+            session_id = cur.fetchone()["id"]
+        conn.commit()
+    return session_id
+
+
+def get_soft_skill_sessions(user_id: int) -> list:
+    """Return all soft skill sessions for a user, newest first."""
+    with get_neon_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, request_type, original_text, corrected_text,
+                       corrections, ai_feedback, improvement_score,
+                       readability_level, created_at
+                FROM soft_skill_sessions
+                WHERE user_id = %s
+                ORDER BY created_at DESC
+                """,
+                (user_id,),
+            )
+            return [dict(r) for r in cur.fetchall()]
