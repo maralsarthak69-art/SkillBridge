@@ -323,3 +323,40 @@ from .serializers_curriculum import (  # noqa: E402
     RoadmapInputSerializer, CriterionScoreSerializer,
     ReviewResultSerializer, ReviewInputSerializer,
 )
+
+
+# ── Soft Skills ───────────────────────────────────────────────────────────────
+
+class SoftSkillItemSerializer(serializers.Serializer):
+    skill           = serializers.CharField()
+    confidence      = serializers.FloatField()
+    evidence        = serializers.CharField()
+    development_tip = serializers.CharField()
+
+
+class SoftSkillsAnalysisSerializer(serializers.Serializer):
+    soft_skills      = SoftSkillItemSerializer(many=True)
+    top_strengths    = serializers.ListField(child=serializers.CharField())
+    areas_to_develop = serializers.ListField(child=serializers.CharField())
+    overall_profile  = serializers.CharField()
+
+
+class SoftSkillsInputSerializer(serializers.Serializer):
+    text = serializers.CharField(min_length=20)
+
+
+class GrammarCorrectionInputSerializer(serializers.Serializer):
+    text = serializers.CharField(min_length=10)
+
+
+class GrammarChangeSerializer(serializers.Serializer):
+    original  = serializers.CharField()
+    corrected = serializers.CharField()
+    reason    = serializers.CharField()
+
+
+class GrammarCorrectionResultSerializer(serializers.Serializer):
+    corrected_text    = serializers.CharField()
+    changes           = GrammarChangeSerializer(many=True)
+    improvement_score = serializers.IntegerField()
+    readability_level = serializers.CharField()

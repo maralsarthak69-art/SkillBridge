@@ -26,6 +26,11 @@ from .services.curriculum import build_learning_path
 from .services.capstone import create_capstone, review_capstone_submission
 from .logic.alignment_engine import analyze_jd_alignment
 from .logic.curriculum_generator import generate_dual_path_roadmap, automated_ai_reviewer
+from .soft_skills_service import analyze_soft_skills, correct_grammar
+from .serializers import (
+    SoftSkillsInputSerializer, SoftSkillsAnalysisSerializer,
+    GrammarCorrectionInputSerializer, GrammarCorrectionResultSerializer,
+)
 
 
 # ── Health Check ──────────────────────────────────────────────────────────────
@@ -484,3 +489,77 @@ def review_capstone_submission_view(request):
         )
 
     return Response(ReviewResultSerializer(result).data, status=status.HTTP_200_OK)
+
+
+# ── Soft Skills Analysis ──────────────────────────────────────────────────────
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def analyze_soft_skills_view(request):
+    """
+    POST /api/core/soft-skills/analyze/
+    Body: { "text": "resume or bio text here..." }
+
+    Uses the existing Groq AI engine (same client as alignment_engine.py)
+    to extract and analyze soft skills from any professional text.
+
+    Returns:
+        soft_skills:      list of skills with confidence, evidence, development tip
+        top_strengths:    top 3 strongest soft skills
+        areas_to_develop: up to 3 skills to work on
+        overall_profile:  2-sentence summary
+    """
+    serializer = SoftSkillsInputSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        result = analyze_soft_skills(serializer.validated_data["text"])
+    except ValueError as e:
+        return Response(
+            {"error": str(e)},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+    except Exception as e:
+        return Response(
+            {"error": f"Soft skills analysis failed: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return Response(SoftSkillsAnalysisSerializer(result).data, status=status.HTTP_200_OK)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def correct_grammar_view(request):
+    """
+    POST /api/core/soft-skills/grammar/
+    Body: { "text": "resume bullet points or bio text..." }
+
+    Uses the existing Groq AI engine (same client as curriculum_generator.py)
+    to correct grammar, improve professional tone, and strengthen action verbs.
+
+    Returns:
+        corrected_text:    the improved version of the text
+        changes:           list of {original, corrected, reason}
+        improvement_score: 0-100 score of how much it improved
+        readability_level: entry | mid | senior | executive
+    """
+    serializer = GrammarCorrectionInputSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        result = correct_grammar(serializer.validated_data["text"])
+    except ValueError as e:
+        return Response(
+            {"error": str(e)},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+    except Exception as e:
+        return Response(
+            {"error": f"Grammar correction failed: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return Response(GrammarCorrectionResultSerializer(result).data, status=status.HTTP_200_OK)

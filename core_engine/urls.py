@@ -40,4 +40,8 @@ urlpatterns = [
     path("my-skills/",                              views.UserSkillListCreateView.as_view(),     name="my-skills"),
     path("my-badges/",                              views.BadgeListView.as_view(),               name="my-badges"),
     path("badges/verify/<uuid:verification_hash>/", views.verify_badge,                         name="verify-badge"),
+
+    # Soft Skills & Grammar (shared AI engine)
+    path("soft-skills/analyze/",                    views.analyze_soft_skills_view,             name="soft-skills-analyze"),
+    path("soft-skills/grammar/",                    views.correct_grammar_view,                 name="soft-skills-grammar"),
 ]
