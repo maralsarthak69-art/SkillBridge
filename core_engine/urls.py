@@ -41,12 +41,27 @@ urlpatterns = [
     path("my-badges/",                              views.BadgeListView.as_view(),               name="my-badges"),
     path("badges/verify/<uuid:verification_hash>/", views.verify_badge,                         name="verify-badge"),
 
-    # Soft Skills & Grammar (shared AI engine)
+    # Soft Skills & Grammar (Rutuja's AI engine)
     path("soft-skills/analyze/",                    views.analyze_soft_skills_view,             name="soft-skills-analyze"),
     path("soft-skills/grammar/",                    views.correct_grammar_view,                 name="soft-skills-grammar"),
     path("soft-skills/sessions/",                   views.soft_skill_sessions_view,             name="soft-skills-sessions"),
 
-    # Gemini AI Chatbot
+    # Gemini AI Chatbot (Rutuja)
     path("bot/chat/",                               views.bot_chat_view,                        name="bot-chat"),
     path("bot/reset/<str:mode>/",                   views.bot_reset_view,                       name="bot-reset"),
+
+    # Test / Assessment
+    path("tests/generate/",                         views.generate_skill_test_view,              name="test-generate"),
+    path("tests/<int:test_id>/submit/",             views.submit_skill_test_view,                name="test-submit"),
+    path("tests/my-attempts/",                      views.my_attempts_view,                      name="my-attempts"),
+
+    # Resources
+    path("resources/",                              views.resources_view,                        name="resources"),
+    path("resources/recommended/",                  views.recommended_resources_view,            name="resources-recommended"),
+    path("resources/refresh/",                      views.refresh_resources_view,                name="resources-refresh"),
+
+    # Portfolio
+    path("portfolio/generate/",                     views.portfolio_generate_view,               name="portfolio-generate"),
+    path("portfolio/me/",                           views.portfolio_me_view,                     name="portfolio-me"),
+    path("portfolio/<slug:slug>/",                  views.portfolio_public_view,                 name="portfolio-public"),
 ]

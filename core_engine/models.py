@@ -316,3 +316,172 @@ class PortfolioSkillEntry(models.Model):
 
     def __str__(self):
         return f"{self.portfolio.user.username} — {self.skill.name}"
+
+
+# ── Rutuja's Persistence Models ───────────────────────────────────────────────
+
+class SkillMap(models.Model):
+    """
+    Stores individual skill entries for a user with freshness/staleness data.
+    One row per skill per user — queryable, filterable, sortable.
+
+    status:
+        "claimed"  — user says they have this skill (from CV text)
+        "verified" — user passed a skill test for this skill
+    """
+    STATUS_CHOICES = [
+        ("claimed",  "Claimed"),
+        ("verified", "Verified"),
+    ]
+
+    user            = models.ForeignKey(User, on_delete=models.CASCADE, related_name="skill_map")
+    skill_name      = models.CharField(max_length=255, db_index=True)
+    status          = models.CharField(max_length=20, choices=STATUS_CHOICES, default="claimed")
+    years_experience = models.FloatField(null=True, blank=True)
+
+    # Staleness Index fields (from Sarthak's NeonDB logic)
+    freshness_score  = models.IntegerField(default=50)   # 0–100 (higher = fresher)
+    staleness_index  = models.IntegerField(default=50)   # 0–100 (higher = more stale)
+    demand_score     = models.IntegerField(default=50)   # market demand 0–100
+    growth_rate      = models.FloatField(default=0.0)    # positive = growing
+
+    # Breakdown metadata — stored as JSON for frontend detail views
+    staleness_breakdown = models.JSONField(default=dict)
+    # Structure: {"semantic_drift": 0.42, "recency_penalty": 0.3, "demand_penalty": 0.03}
+
+    last_analyzed   = models.DateTimeField(auto_now=True)
+    created_at      = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("user", "skill_name")
+        ordering        = ["-freshness_score"]
+        indexes         = [
+            models.Index(fields=["user", "status"]),
+            models.Index(fields=["user", "freshness_score"]),
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} — {self.skill_name} [{self.status}] {self.freshness_score}/100"
+
+    @property
+    def is_stale(self):
+        return self.staleness_index >= 60
+
+    @property
+    def is_fresh(self):
+        return self.staleness_index < 30
+
+
+class RoadmapProgress(models.Model):
+    """
+    Tracks a user's progress through a generated dual-path curriculum roadmap.
+    One record per roadmap run (per JD analysis).
+    """
+    PATH_CHOICES = [
+        ("hacker",    "Hacker Path"),
+        ("certified", "Certified Path"),
+        ("both",      "Both Paths"),
+    ]
+
+    user            = models.ForeignKey(User, on_delete=models.CASCADE, related_name="roadmap_progress")
+    target_role     = models.CharField(max_length=255, blank=True)
+    jd_text         = models.TextField(blank=True)
+    path_preference = models.CharField(max_length=20, choices=PATH_CHOICES, default="both")
+    overall_gap_score = models.IntegerField(default=0)   # 0–100
+    overlap_pct     = models.IntegerField(default=0)     # 0–100
+    created_at      = models.DateTimeField(auto_now_add=True)
+    updated_at      = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.user.username} → {self.target_role or 'Unknown Role'} ({self.created_at:%Y-%m-%d})"
+
+    @property
+    def completion_pct(self):
+        tasks = self.tasks.all()
+        if not tasks:
+            return 0
+        done = tasks.filter(status="completed").count()
+        return round(done / tasks.count() * 100)
+
+
+class RoadmapTask(models.Model):
+    """
+    Individual task within a RoadmapProgress.
+    One row per skill gap in the roadmap.
+    """
+    STATUS_CHOICES = [
+        ("pending",    "Pending"),
+        ("in_progress","In Progress"),
+        ("completed",  "Completed"),
+        ("skipped",    "Skipped"),
+    ]
+
+    roadmap         = models.ForeignKey(RoadmapProgress, on_delete=models.CASCADE, related_name="tasks")
+    skill_name      = models.CharField(max_length=255)
+    gap_severity    = models.CharField(max_length=20)    # critical / moderate / minor
+    priority        = models.CharField(max_length=20)    # must_have / preferred / bonus
+    bridge_hint     = models.TextField(blank=True)
+    status          = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+
+    # Learning resources (stored as JSON — Rutuja's API enriches these)
+    hacker_resources    = models.JSONField(default=list)
+    certified_resources = models.JSONField(default=list)
+
+    # Mini-capstone (from Sarthak's generator)
+    capstone_task       = models.JSONField(default=dict, blank=True)
+    # Structure: {task_title, problem_statement, specific_constraint, deliverable,
+    #             proof_of_work_format, rubric, estimated_days, difficulty}
+
+    # Proof of work submission
+    proof_of_work       = models.TextField(blank=True)
+    review_result       = models.JSONField(default=dict, blank=True)
+    # Structure: {verdict, total_score, criterion_scores, overall_feedback, ...}
+
+    completed_at        = models.DateTimeField(null=True, blank=True)
+    created_at          = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["gap_severity", "skill_name"]
+
+    def __str__(self):
+        return f"{self.roadmap} — {self.skill_name} [{self.status}]"
+
+
+# ── Roadmap Dashboard (week-by-week plan) ─────────────────────────────────────
+
+class RoadmapWeek(models.Model):
+    """
+    One row per week per user in the personalised learning roadmap.
+    Populated by the roadmap generation logic; status updated by the user.
+    """
+    LEVEL_CHOICES = [
+        ("basic",        "Basic"),
+        ("intermediate", "Intermediate"),
+        ("advanced",     "Advanced"),
+    ]
+    STATUS_CHOICES = [
+        ("not_started", "Not Started"),
+        ("in_progress", "In Progress"),
+        ("completed",   "Completed"),
+    ]
+
+    user      = models.ForeignKey(User, on_delete=models.CASCADE, related_name="roadmap_weeks")
+    week      = models.PositiveIntegerField()
+    title     = models.CharField(max_length=200)
+    skill     = models.CharField(max_length=100)
+    level     = models.CharField(max_length=20, choices=LEVEL_CHOICES)
+    trending  = models.BooleanField(default=False)
+    task      = models.TextField()
+    status    = models.CharField(max_length=20, choices=STATUS_CHOICES, default="not_started")
+    # { "free": [{"title", "link"}], "paid": [{"title", "platform", "link"}] }
+    resources = models.JSONField(default=dict)
+
+    class Meta:
+        unique_together = ("user", "week")
+        ordering        = ["week"]
+
+    def __str__(self):
+        return f"{self.user.username} — Week {self.week}: {self.title} [{self.status}]"

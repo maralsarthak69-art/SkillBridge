@@ -36,23 +36,44 @@ def _recency_decay(peak_year: int, years_experience) -> float:
 def calculate_staleness_index(skill_name: str, years_experience=None) -> dict:
     """
     Calculate the Staleness Index for a single skill using NeonDB market data.
+    Falls back to heuristic scoring when skill is not in the market database.
     Returns dict with staleness_index (0–100), freshness_score, breakdown.
     """
     _ensure_init()
     data = get_market_data(skill_name)
 
     if not data:
+        # ── Heuristic fallback for unknown skills ─────────────────────────
+        # Use years_experience as a proxy for recency:
+        #   - No years info → neutral (50)
+        #   - Recent (≤2 yrs) → fresher
+        #   - Old (>5 yrs) → more stale
+        # Also apply a mild penalty for skills not tracked in market DB
+        # (they tend to be niche/legacy)
+        if years_experience is None:
+            staleness_index = 45  # slightly below neutral — unknown = mild risk
+        elif years_experience <= 1:
+            staleness_index = 25  # very recent use → fresh
+        elif years_experience <= 2:
+            staleness_index = 35
+        elif years_experience <= 4:
+            staleness_index = 50
+        elif years_experience <= 7:
+            staleness_index = 62
+        else:
+            staleness_index = 72  # 8+ years on an unknown skill → likely legacy
+
         return {
             "skill":           skill_name,
-            "staleness_index": 50,
-            "freshness_score": 50,
+            "staleness_index": staleness_index,
+            "freshness_score": 100 - staleness_index,
             "demand_score":    50,
             "growth_rate":     0.0,
             "semantic_match":  False,
             "breakdown": {
-                "semantic_drift":  0.5,
-                "recency_penalty": 0.0,
-                "demand_penalty":  0.0,
+                "semantic_drift":  0.45,
+                "recency_penalty": round(min(1.0, (years_experience or 3) / 10), 3),
+                "demand_penalty":  0.3,
             },
         }
 

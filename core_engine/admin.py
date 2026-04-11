@@ -4,6 +4,7 @@ from .models import (
     LearningPath, LearningStep, Capstone, CapstoneReview,
     SkillCategory, Skill, UserSkill, SkillBadge, ResumeParseResult,
     SkillTest, TestAttempt, LearningResource, Portfolio, PortfolioSkillEntry,
+    SkillMap, RoadmapProgress, RoadmapTask,
 )
 
 # ── Sarthak's AI Models ───────────────────────────────────────────────────────
@@ -170,3 +171,36 @@ class PortfolioAdmin(admin.ModelAdmin):
     search_fields = ["user__username", "slug"]
     readonly_fields = ["slug", "created_at", "updated_at"]
     inlines = [PortfolioSkillEntryInline]
+
+
+# ── SkillMap & Roadmap ────────────────────────────────────────────────────────
+
+@admin.register(SkillMap)
+class SkillMapAdmin(admin.ModelAdmin):
+    list_display  = ["user", "skill_name", "status", "freshness_score", "staleness_index", "demand_score", "last_analyzed"]
+    list_filter   = ["status", "last_analyzed"]
+    search_fields = ["user__username", "skill_name"]
+    readonly_fields = ["staleness_breakdown", "last_analyzed", "created_at"]
+
+
+class RoadmapTaskInline(admin.TabularInline):
+    model  = RoadmapTask
+    extra  = 0
+    readonly_fields = ["skill_name", "gap_severity", "priority", "status", "completed_at"]
+
+
+@admin.register(RoadmapProgress)
+class RoadmapProgressAdmin(admin.ModelAdmin):
+    list_display  = ["user", "target_role", "path_preference", "overall_gap_score", "overlap_pct", "created_at"]
+    list_filter   = ["path_preference", "created_at"]
+    search_fields = ["user__username", "target_role"]
+    readonly_fields = ["created_at", "updated_at"]
+    inlines       = [RoadmapTaskInline]
+
+
+@admin.register(RoadmapTask)
+class RoadmapTaskAdmin(admin.ModelAdmin):
+    list_display  = ["roadmap", "skill_name", "gap_severity", "status", "completed_at"]
+    list_filter   = ["status", "gap_severity"]
+    search_fields = ["skill_name", "roadmap__user__username"]
+    readonly_fields = ["capstone_task", "review_result", "created_at"]

@@ -2,6 +2,7 @@ import json
 import re
 import io
 import PyPDF2
+import pdfplumber
 from groq import Groq
 from django.conf import settings
 
@@ -9,10 +10,36 @@ from django.conf import settings
 # ── PDF Extraction ────────────────────────────────────────────────────────────
 
 def extract_text_from_pdf(file_bytes: bytes) -> str:
-    """Extract plain text from a PDF file given its raw bytes."""
-    reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
-    pages = [page.extract_text() or "" for page in reader.pages]
-    return "\n".join(pages).strip()
+    """
+    Extract plain text from a PDF file.
+    Tries PyPDF2 first, falls back to pdfplumber for better compatibility
+    with complex layouts, tables, and multi-column CVs.
+    """
+    # Attempt 1: PyPDF2 (fast, works for simple PDFs)
+    try:
+        reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
+        pages = [page.extract_text() or "" for page in reader.pages]
+        text = "\n".join(pages).strip()
+        if text and len(text) > 50:  # meaningful content
+            return text
+    except Exception:
+        pass
+
+    # Attempt 2: pdfplumber (better for complex layouts, tables, columns)
+    try:
+        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            pages = []
+            for page in pdf.pages:
+                page_text = page.extract_text(x_tolerance=3, y_tolerance=3)
+                if page_text:
+                    pages.append(page_text)
+            text = "\n".join(pages).strip()
+            if text and len(text) > 50:
+                return text
+    except Exception:
+        pass
+
+    return ""
 
 
 # ── Groq Prompt ───────────────────────────────────────────────────────────────
@@ -69,9 +96,13 @@ def parse_cv(text: str) -> dict:
 
 # ── Convenience wrapper ───────────────────────────────────────────────────────
 
-def parse_cv_from_pdf(file_bytes: bytes) -> dict:
+def parse_cv_from_pdf(file_bytes: bytes) -> tuple[dict, str]:
     """Extract text from PDF then parse it. Single call for file uploads."""
     text = extract_text_from_pdf(file_bytes)
     if not text:
-        raise ValueError("Could not extract any text from the uploaded PDF.")
+        raise ValueError(
+            "Could not extract text from this PDF. "
+            "Please ensure the file is a text-based PDF (not a scanned image). "
+            "Try saving your CV as PDF from Word/Google Docs and re-uploading."
+        )
     return parse_cv(text), text

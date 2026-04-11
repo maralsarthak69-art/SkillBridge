@@ -1,0 +1,38 @@
+# Production requirements for SkillBridge Backend
+
+# Core Django
+Django==5.2.13
+djangorestframework==3.17.1
+djangorestframework-simplejwt==5.4.0
+django-cors-headers==4.7.0
+
+# Database
+psycopg2-binary==2.9.10
+
+# WSGI Server
+gunicorn==23.0.0
+
+# AI Libraries
+openai==1.59.5
+anthropic==0.42.0
+langchain==0.3.14
+langchain-openai==0.3.0
+langchain-anthropic==0.3.0
+
+# PDF Processing
+PyPDF2==3.0.1
+pdfplumber==0.11.4
+
+# Utilities
+python-dotenv==1.0.1
+requests==2.32.3
+
+# Security & Monitoring (optional but recommended)
+sentry-sdk==2.19.2
+
+# Rate Limiting (recommended)
+django-ratelimit==4.1.0
+
+# Caching (optional - requires Redis)
+# redis==5.2.1
+# django-redis==5.4.0

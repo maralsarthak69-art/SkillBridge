@@ -30,14 +30,70 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class RegisterSerializer(serializers.ModelSerializer):
+    name     = serializers.CharField(write_only=True, required=False)
     password = serializers.CharField(write_only=True, min_length=8)
+    
+    # Return JWT tokens + username after registration
+    access   = serializers.CharField(read_only=True)
+    refresh  = serializers.CharField(read_only=True)
+    username = serializers.CharField(read_only=True)
 
     class Meta:
         model  = User
-        fields = ["username", "email", "password", "first_name", "last_name"]
+        fields = ["email", "password", "name", "username", "access", "refresh"]
+        extra_kwargs = {
+            "email": {"required": True},
+        }
+
+    def validate_email(self, value):
+        """Check for duplicate email"""
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError(
+                "A user with this email already exists."
+            )
+        return value
+
+    def validate(self, attrs):
+        # If 'name' is provided, split it into first_name and last_name
+        if "name" in attrs:
+            name_parts = attrs.pop("name").strip().split(maxsplit=1)
+            attrs["first_name"] = name_parts[0]
+            attrs["last_name"] = name_parts[1] if len(name_parts) > 1 else ""
+        
+        # If username explicitly provided, validate uniqueness
+        if "username" in self.initial_data:
+            requested_username = self.initial_data["username"]
+            if User.objects.filter(username=requested_username).exists():
+                raise serializers.ValidationError(
+                    {"username": "A user with this username already exists."}
+                )
+            attrs["username"] = requested_username
+        else:
+            # Auto-generate username from email
+            email = attrs.get("email", "")
+            username = email.split("@")[0]
+            base_username = username
+            counter = 1
+            while User.objects.filter(username=username).exists():
+                username = f"{base_username}{counter}"
+                counter += 1
+            attrs["username"] = username
+        
+        return attrs
 
     def create(self, validated_data):
-        return User.objects.create_user(**validated_data)
+        from rest_framework_simplejwt.tokens import RefreshToken
+        
+        user = User.objects.create_user(**validated_data)
+        
+        # Generate JWT tokens
+        refresh = RefreshToken.for_user(user)
+        
+        # Add tokens to the instance for serialization
+        user.access = str(refresh.access_token)
+        user.refresh = str(refresh)
+        
+        return user
 
 
 # ── Sarthak's AI Serializers ──────────────────────────────────────────────────
