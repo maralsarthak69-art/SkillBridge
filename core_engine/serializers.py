@@ -363,3 +363,62 @@ class GrammarCorrectionResultSerializer(serializers.Serializer):
     session_id        = serializers.IntegerField(required=False, allow_null=True)
     request_type      = serializers.CharField(required=False, default="grammar")
     neon_error        = serializers.CharField(required=False, allow_null=True)
+
+
+# ── Gemini Bot ────────────────────────────────────────────────────────────────
+
+class BotChatInputSerializer(serializers.Serializer):
+    mode    = serializers.ChoiceField(choices=["english_coach", "interview_coach", "conflict_coach"])
+    message = serializers.CharField(min_length=1)
+    reset   = serializers.BooleanField(default=False)
+
+
+class CorrectionSerializer(serializers.Serializer):
+    original  = serializers.CharField()
+    corrected = serializers.CharField()
+    tip       = serializers.CharField(required=False, default="")
+
+
+class StarrItemSerializer(serializers.Serializer):
+    present  = serializers.BooleanField()
+    feedback = serializers.CharField()
+
+
+class StarrEvaluationSerializer(serializers.Serializer):
+    situation  = StarrItemSerializer()
+    task       = StarrItemSerializer()
+    action     = StarrItemSerializer()
+    result     = StarrItemSerializer()
+    reflection = StarrItemSerializer()
+
+
+class CoachFeedbackSerializer(serializers.Serializer):
+    tone_assessment  = serializers.CharField()
+    what_worked      = serializers.CharField()
+    what_to_improve  = serializers.CharField()
+    suggested_phrase = serializers.CharField()
+
+
+class BotChatResponseSerializer(serializers.Serializer):
+    mode       = serializers.CharField()
+    session_id = serializers.IntegerField()
+    turn_count = serializers.IntegerField()
+
+    # english_coach fields
+    reply          = serializers.CharField(required=False)
+    corrections    = CorrectionSerializer(many=True, required=False, default=[])
+    encouragement  = serializers.CharField(required=False, allow_null=True)
+    follow_up      = serializers.CharField(required=False, allow_null=True)
+
+    # interview_coach fields
+    starr_evaluation = StarrEvaluationSerializer(required=False, allow_null=True)
+    overall_score    = serializers.FloatField(required=False, allow_null=True)
+    strength         = serializers.CharField(required=False, allow_null=True)
+    improvement      = serializers.CharField(required=False, allow_null=True)
+    next_question    = serializers.CharField(required=False, allow_null=True)
+
+    # conflict_coach fields
+    in_character_reply    = serializers.CharField(required=False, allow_null=True)
+    coach_feedback        = CoachFeedbackSerializer(required=False, allow_null=True)
+    scenario_escalation   = serializers.CharField(required=False, allow_null=True)
+    diplomacy_score       = serializers.FloatField(required=False, allow_null=True)

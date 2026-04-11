@@ -45,4 +45,8 @@ urlpatterns = [
     path("soft-skills/analyze/",                    views.analyze_soft_skills_view,             name="soft-skills-analyze"),
     path("soft-skills/grammar/",                    views.correct_grammar_view,                 name="soft-skills-grammar"),
     path("soft-skills/sessions/",                   views.soft_skill_sessions_view,             name="soft-skills-sessions"),
+
+    # Gemini AI Chatbot
+    path("bot/chat/",                               views.bot_chat_view,                        name="bot-chat"),
+    path("bot/reset/<str:mode>/",                   views.bot_reset_view,                       name="bot-reset"),
 ]

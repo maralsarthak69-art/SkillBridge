@@ -31,6 +31,8 @@ from .serializers import (
     SoftSkillsInputSerializer, SoftSkillsAnalysisSerializer,
     GrammarCorrectionInputSerializer, GrammarCorrectionResultSerializer,
 )
+from .gemini_bot import chat as gemini_chat
+from .serializers import BotChatInputSerializer, BotChatResponseSerializer
 
 
 # ── Health Check ──────────────────────────────────────────────────────────────
@@ -601,3 +603,77 @@ def soft_skill_sessions_view(request):
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
     return Response({"sessions": sessions, "count": len(sessions)}, status=status.HTTP_200_OK)
+
+
+# ── Gemini AI Chatbot ─────────────────────────────────────────────────────────
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def bot_chat_view(request):
+    """
+    POST /api/core/bot/chat/
+    Body: { "mode": "english_coach|interview_coach|conflict_coach", "message": "...", "reset": false }
+
+    Three coaching modes:
+
+    english_coach:
+        - Corrects grammar and vocabulary in real-time
+        - Encourages and asks follow-up questions to keep the user practicing
+        - Returns: reply, corrections, encouragement, follow_up
+
+    interview_coach:
+        - Acts as a hiring manager conducting a behavioral interview
+        - Evaluates answers using the STARR method
+        - Returns: reply, starr_evaluation, overall_score, strength, improvement, next_question
+
+    conflict_coach:
+        - Roleplays as a difficult boss or client
+        - Trains professional diplomacy and negotiation
+        - Returns: in_character_reply, coach_feedback, scenario_escalation, diplomacy_score
+
+    Set "reset": true to start a fresh conversation in any mode.
+    Conversation history is persisted in NeonDB per user per mode.
+    """
+    serializer = BotChatInputSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        result = gemini_chat(
+            user_id=request.user.id,
+            mode=serializer.validated_data["mode"],
+            user_message=serializer.validated_data["message"],
+            reset=serializer.validated_data["reset"],
+        )
+    except RuntimeError as e:
+        return Response({"error": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    except ValueError as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        return Response(
+            {"error": f"Bot error: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return Response(BotChatResponseSerializer(result).data, status=status.HTTP_200_OK)
+
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def bot_reset_view(request, mode):
+    """
+    DELETE /api/core/bot/reset/<mode>/
+    Clears conversation history for the given mode so the user can start fresh.
+    """
+    from .gemini_bot import _reset_session, BOT_MODES
+    if mode not in BOT_MODES:
+        return Response(
+            {"error": f"Invalid mode. Choose from: {', '.join(BOT_MODES)}"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        _reset_session(request.user.id, mode)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    return Response({"detail": f"{mode} conversation reset successfully."}, status=status.HTTP_200_OK)

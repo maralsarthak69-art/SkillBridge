@@ -117,7 +117,8 @@ CORS_ALLOWED_ORIGINS = os.getenv(
 CORS_ALLOW_CREDENTIALS = True
 
 # ── Sarthak's AI API Keys ─────────────────────────────────────────────────────
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_API_KEY   = os.getenv("GROQ_API_KEY", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # ── NeonDB (market trends / skill vector store) ───────────────────────────────
 NEON_DATABASE_URL = os.getenv("NEON_DATABASE_URL", "")
